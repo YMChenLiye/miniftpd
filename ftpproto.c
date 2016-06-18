@@ -10,6 +10,8 @@ void ftp_lreply(session_t * sess,int status,const char *text);
 int list_common(session_t *sess);
 
 int get_transfer_fd(session_t *sess);
+int port_active(session_t *sess);
+int pasv_active(session_t *sess);
 
 static void do_user(session_t *sess);
 static void do_pass(session_t *sess);
@@ -289,14 +291,24 @@ int list_common(session_t *sess)
 int port_active(session_t *sess)
 {
 	if(sess->port_addr){
+		if(pasv_active(sess)){
+			fprintf((stderr), "both port and pasv are\n");
+			exit(EXIT_FAILURE);
+		}
 		return 1;
-	}else {
-		return 0;
 	}
+	return 0;
 }
 
 int pasv_active(session_t *sess)
 {
+	if(sess->pasv_listen_fd != -1){
+		if(port_active(sess)){
+			fprintf((stderr), "both port and pasv are\n");
+			exit(EXIT_FAILURE);
+		}
+		return 1;
+	}
 	return 0;
 }
 
@@ -315,6 +327,16 @@ int get_transfer_fd(session_t *sess)
 		if(connect_timeout(fd,sess->port_addr,tunable_connect_timeout) < 0){
 			close(fd);
 			//printf("4444444444444\n");
+			return 0;
+		}
+		sess->data_fd = fd;
+	}
+
+	// 如果是被动模式
+	if(pasv_active(sess)){
+		int fd =accept_timeout(sess->pasv_listen_fd,NULL,tunable_accept_timeout);
+		close(sess->pasv_listen_fd);
+		if(fd == -1){
 			return 0;
 		}
 		sess->data_fd = fd;
@@ -411,6 +433,21 @@ static void do_port(session_t *sess)
 
 static void do_pasv(session_t *sess)
 {
+	char ip[16] = {0};
+	getlocalip(ip);
+	sess->pasv_listen_fd = tcp_server(ip,0);
+	struct sockaddr_in addr;
+	socklen_t addrlen = sizeof(addrlen);
+	if(getsockname(sess->pasv_listen_fd,(struct sockaddr*)&addr,&addrlen) < 0){
+		ERR_EXIT("getsockname");
+	}
+	unsigned short port = ntohs(addr.sin_port);
+	unsigned int v[4];
+	sscanf(ip,"%u.%u.%u.%u",&v[0],&v[1],&v[2],&v[3]);
+	char text[1024] = {0};
+	sprintf(text,"Entering Passive Mode (%u,%u,%u,%u,%u,%u).",
+		v[0],v[1],v[2],v[3],port>>8,port & 0xff);
+	ftp_reply(sess,FTP_PASVOK,text);
 
 }
 
@@ -463,6 +500,7 @@ static void do_list(session_t *sess)
 {
 	// 创建数据连接
 	if(get_transfer_fd(sess) == 0){
+		ftp_reply(sess,FTP_BADSENDCONN,"Use PORT OR PASV first");
 		return;
 	}
 	// 150
@@ -472,6 +510,7 @@ static void do_list(session_t *sess)
 	list_common(sess);
 	// 关闭数据套接字
 	close(sess->data_fd);
+	sess->data_fd = -1;
 	// 226
 	ftp_reply(sess,FTP_TRANSFEROK,"Directory send OK.");
 
