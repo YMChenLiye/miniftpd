@@ -81,7 +81,9 @@ extern const char  *tunable_listen_address;
 		//控制链接
 		0,-1,"","","",
 		//父子进程通道
-		-1,-1
+		-1,-1,
+		//ftp协议状态
+		0
 	};
 	int listenfd = tcp_server(tunable_listen_address,tunable_listen_port);
 	int conn;
