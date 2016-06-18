@@ -79,7 +79,7 @@ extern const char  *tunable_listen_address;
 	session_t sess = 
 	{
 		//控制链接
-		-1,"","","",
+		0,-1,"","","",
 		//父子进程通道
 		-1,-1
 	};

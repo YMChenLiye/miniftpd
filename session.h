@@ -4,6 +4,7 @@
 
 typedef struct session{
 	// 控制链接
+	uid_t uid;
 	int ctrl_fd;
 	char cmdline[MAX_COMMAND_LINE];
 	char cmd[MAX_COMMAND];
