@@ -82,6 +82,8 @@ extern const char  *tunable_listen_address;
 	{
 		//控制链接
 		0,-1,"","","",
+		//数据连接
+		NULL,-1,
 		//父子进程通道
 		-1,-1,
 		//ftp协议状态

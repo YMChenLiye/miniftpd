@@ -1,5 +1,33 @@
 #include "sysutil.h"
 
+
+int tcp_client(unsigned short port)
+{
+	int sock;
+	if((sock = socket(PF_INET,SOCK_STREAM,0)) < 0){
+		ERR_EXIT("tcp_client");
+	}
+
+	if(port > 0){
+		int on = 1;
+		if((setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,(const char*)&on,sizeof(on))) < 0){
+			ERR_EXIT("setsockopt");
+		}
+		char ip[16] = {0};
+		getlocalip(ip);
+		struct sockaddr_in localaddr;
+		memset(&localaddr,0,sizeof(localaddr));
+		localaddr.sin_family = AF_INET;
+		localaddr.sin_port = htons(port);
+		localaddr.sin_addr.s_addr = inet_addr(ip);
+		if(bind(sock,(struct sockaddr*)&localaddr,sizeof(localaddr)) < 0){
+			ERR_EXIT("bind");
+		}
+	}
+	return sock;
+}
+
+
 /**
  * tcp_server - 启动tcp服务器
  * @host: 服务器的ip地址或者服务器主机名
