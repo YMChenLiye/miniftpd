@@ -3,9 +3,11 @@
 #include "str.h"
 #include "tunable.h"
 #include "parseconf.h"
+#include "ftpproto.h"
 
 int main()
 {
+	//list_common();
 	/*
 	char *str1 = "  		 a 	 b 	";
 	char *str2 = "		 		  	";
