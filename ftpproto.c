@@ -9,6 +9,7 @@ void ftp_reply(session_t * sess,int status,const char *text);
 void ftp_lreply(session_t * sess,int status,const char *text);
 
 int list_common(session_t *sess,int detail);
+void limit_rate(session_t *sess,int bytes_transfered,int is_upload);
 void upload_common(session_t *sess,int is_append);
 
 int get_port_fd(session_t *sess);
@@ -219,6 +220,48 @@ int list_common(session_t *sess,int detail)
 	return 1;
 }
 
+void limit_rate(session_t *sess,int bytes_transfered,int is_upload)
+{
+	// 睡眠时间 = (当前传输速度 / 最大传输速度 - 1) * 当前传输时间；
+	long curr_sec = get_time_sec();
+	long curr_usec = get_time_usec();
+
+	double elapsed;
+	elapsed = curr_sec - sess->bw_transfer_start_sec;
+	elapsed += (double)(curr_usec - sess->bw_transfer_start_usec) / (double)1000000;
+
+	if(elapsed <= 0){
+		elapsed = 0.01;
+	}
+
+	//计算当前传输速度
+	unsigned int bw_rate = (unsigned int)(double)bytes_transfered / elapsed;
+
+	double rate_ratio;
+
+	if(is_upload){
+		if(bw_rate <= sess->bw_upload_rate_max){
+			//不需要限速
+			return;
+		}
+		rate_ratio = bw_rate / sess->bw_upload_rate_max;
+
+	}else{
+		if(bw_rate <= sess->bw_download_rate_max){
+			//不需要限速
+			return;
+		}
+		rate_ratio = bw_rate / sess->bw_download_rate_max;
+	}
+	double pause_time;
+	pause_time = (rate_ratio - 1.0) * elapsed;
+	//printf("%f\n",pause_time);
+	nano_sleep(pause_time);
+
+	sess->bw_transfer_start_sec = get_time_sec();
+	sess->bw_transfer_start_usec = get_time_usec();
+}
+
 void upload_common(session_t *sess,int is_append)
 {
 	// 创建数据连接
@@ -283,7 +326,12 @@ void upload_common(session_t *sess,int is_append)
 	int flag = 0;
 
 	// 上传文件
-	char buf[1024];
+	char buf[10240];
+
+	
+	sess->bw_transfer_start_sec = get_time_sec();
+	sess->bw_transfer_start_usec = get_time_usec();
+
 	while(1){
 		ret = read(sess->data_fd,buf,sizeof(buf));
 		if(ret == -1){
@@ -297,6 +345,9 @@ void upload_common(session_t *sess,int is_append)
 			flag = 0;
 			break;
 		}
+
+		limit_rate(sess,ret,1);
+
 		if(writen(fd,buf,ret) !=  ret){
 			flag = 1;
 			break;
@@ -305,6 +356,7 @@ void upload_common(session_t *sess,int is_append)
 
 	// 关闭数据套接字
 	close(sess->data_fd);
+	printf("close sockfd\n");
 	sess->data_fd = -1;
 	close(fd);
 	if(flag == 0){
@@ -663,6 +715,8 @@ static void do_retr(session_t *sess)
 		bytes_to_send -= offset;
 	}
 
+	sess->bw_transfer_start_sec = get_time_sec();
+	sess->bw_transfer_start_usec = get_time_usec();
 	while(bytes_to_send){
 		int num_this_time = bytes_to_send > 4096 ? 4096 : bytes_to_send;
 		ret = sendfile(sess->data_fd,fd,NULL,num_this_time);
@@ -670,6 +724,9 @@ static void do_retr(session_t *sess)
 			flag = 2;
 			break;
 		}
+
+
+		limit_rate(sess,ret,0);
 		bytes_to_send -= ret;
 	}
 

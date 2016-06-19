@@ -643,3 +643,37 @@ int unlock_file(int fd)
 
 	return ret;
 }
+
+static struct timeval s_curr_time;
+
+long get_time_sec(void)
+{
+	
+	if(gettimeofday(&s_curr_time,NULL) < 0){
+		ERR_EXIT("gettimeofday");
+	}
+	return s_curr_time.tv_sec;
+
+}
+
+long get_time_usec(void)
+{	
+	return s_curr_time.tv_usec;
+
+}
+
+void nano_sleep(double seconds)
+{
+	time_t secs = (time_t)seconds;				//整数部分
+	double fractional = seconds - (double)secs;	//小数部分
+
+	struct timespec ts;
+	ts.tv_sec = secs;
+	ts.tv_nsec = (long)(fractional * (double)1000000000);
+	
+	int ret;
+	do{
+		ret = nanosleep(&ts,&ts);
+	}while(ret == -1 && errno == EINTR);
+	
+}
