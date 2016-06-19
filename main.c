@@ -89,6 +89,7 @@ extern const char  *tunable_listen_address;
 		//ftp协议状态
 		0
 	};
+	signal(SIGCHLD,SIG_IGN);
 	int listenfd = tcp_server(tunable_listen_address,tunable_listen_port);
 	int conn;
 	pid_t pid;
