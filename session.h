@@ -21,6 +21,8 @@ typedef struct session{
 
 	//　FTP协议状态
 	int is_ascii;
+	long long restart_pos;
+	char *rnfr_name;
 }session_t;
 
 void begin_session(session_t *sess);

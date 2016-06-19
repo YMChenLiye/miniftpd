@@ -371,7 +371,7 @@ static void do_pass(session_t *sess)
 		ftp_reply(sess,FTP_LOGINERR,"Login incorrect");
 		return;
 	}
-
+	umask(tunable_local_umask);
 	setegid(pw->pw_gid);
 	seteuid(pw->pw_uid);
 	chdir(pw->pw_dir);
@@ -382,12 +382,21 @@ static void do_pass(session_t *sess)
 
 static void do_cwd(session_t *sess)
 {
-
+	if(chdir(sess->arg) < 0){
+		ftp_reply(sess,FTP_FILEFAIL,"Failed to change directory.");
+		return;
+	}
+	ftp_reply(sess,FTP_CWDOK,"Directory successfully changed");
 }
 
 
 static void do_cdup(session_t *sess)
 {
+	if(chdir("..") < 0){
+		ftp_reply(sess,FTP_FILEFAIL,"Failed to change directory.");
+		return;
+	}
+	ftp_reply(sess,FTP_CWDOK,"Directory successfully changed");
 
 }
 static void do_quit(session_t *sess)
@@ -533,7 +542,10 @@ static void do_nlst(session_t *sess)
 
 static void do_rest(session_t *sess)
 {
-
+	sess->restart_pos = str_to_longlong(sess->arg);
+	char text[1024] = {0};
+	sprintf(text,"Restart position accepted (%lld).",sess->restart_pos);
+	ftp_reply(sess,FTP_RESTOK,text);
 }
 
 
@@ -555,31 +567,68 @@ static void do_pwd(session_t *sess)
 
 static void do_mkd(session_t *sess)
 {
-
+	if(mkdir(sess->arg,0777) < 0){
+		ftp_reply(sess,FTP_FILEFAIL,"Create directory operation Failed.");
+		return;
+	}
+	char text[4096] = {0};
+	if(sess->arg[0] == '/'){
+		sprintf(text,"%s created",sess->arg);
+	}else {
+		char dir[4096 + 1] = {0};
+		getcwd(dir,4096);
+		if(dir[strlen(dir) - 1] == '/'){
+			sprintf(text,"%s%s created",dir,sess->arg);
+		}else {
+			sprintf(text,"%s/%s created",dir,sess->arg);
+		}
+	}
+	
+	ftp_reply(sess,FTP_MKDIROK,text);
 }
 
 
 static void do_rmd(session_t *sess)
 {
+	if(rmdir(sess->arg) < 0){
+		ftp_reply(sess,FTP_NOPERM,"Remove directory operation failed.");
+		return;
+	}
+	ftp_reply(sess,FTP_RMDIROK,"Remove directory operation successful");
 
 }
 
 
 static void do_dele(session_t *sess)
 {
-
+	if(unlink(sess->arg) < 0){
+		ftp_reply(sess,FTP_FILEFAIL,"Delete operation Failed");
+		return;
+	}
+	ftp_reply(sess,FTP_DELEOK,"Delete operation successful");
 }
 
 
 static void do_rnfr(session_t *sess)
 {
-
+	sess->rnfr_name = (char *)malloc(strlen(sess->arg) + 1);
+	memset(sess->rnfr_name,0,sizeof(strlen(sess->arg) + 1));
+	strcpy(sess->rnfr_name,sess->arg);
+	ftp_reply(sess,FTP_RNFROK,"Ready for RNTO");
 }
 
 
 static void do_rnto(session_t *sess)
 {
+	if(sess->rnfr_name == NULL){
+		ftp_reply(sess,FTP_NEEDRNFR,"RNRF required first");
+		return;
+	}
+	rename(sess->rnfr_name,sess->arg);
+	ftp_reply(sess,FTP_RENAMEOK,"Rename successful");
 
+	free(sess->rnfr_name);
+	sess->rnfr_name = NULL;
 }
 
 
@@ -612,7 +661,19 @@ static void do_feat(session_t *sess)
 
 static void do_size(session_t *sess)
 {
+	struct stat buf;
 
+	if(stat(sess->arg,&buf) < 0){
+		ftp_reply(sess,FTP_FILEFAIL,"SIZE operation Failed");
+		return;
+	}
+	if(!S_ISREG(buf.st_mode)){
+		ftp_reply(sess,FTP_FILEFAIL,"Could not get file size");
+		return;
+	}
+	char text[1024] = {0};
+	sprintf(text,"%lld",(long long)buf.st_size);
+	ftp_reply(sess,FTP_SIZEOK,text);
 }
 
 

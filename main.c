@@ -87,7 +87,7 @@ extern const char  *tunable_listen_address;
 		//父子进程通道
 		-1,-1,
 		//ftp协议状态
-		0
+		0,0,NULL
 	};
 	signal(SIGCHLD,SIG_IGN);
 	int listenfd = tcp_server(tunable_listen_address,tunable_listen_port);
