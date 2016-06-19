@@ -9,6 +9,7 @@ void ftp_reply(session_t * sess,int status,const char *text);
 void ftp_lreply(session_t * sess,int status,const char *text);
 
 int list_common(session_t *sess,int detail);
+void upload_common(session_t *sess,int is_append);
 
 int get_port_fd(session_t *sess);
 int get_pasv_fd(session_t *sess);
@@ -216,6 +217,107 @@ int list_common(session_t *sess,int detail)
 	}
 	closedir(dir);
 	return 1;
+}
+
+void upload_common(session_t *sess,int is_append)
+{
+	// 创建数据连接
+	if(get_transfer_fd(sess) == 0){
+		ftp_reply(sess,FTP_BADSENDCONN,"Use PORT OR PASV first");
+		return;
+	}
+	long long offset = sess->restart_pos;
+	sess->restart_pos = 0;
+
+	// 打开文件
+	int fd = open(sess->arg,O_CREAT | O_WRONLY,0666);
+	if(fd == -1){
+		ftp_reply(sess,FTP_UPLOADFAIL,"could not create file.");
+		return;
+	}
+	// 加写锁
+	int ret;
+	ret = lock_file_write(fd);
+	if(ret == -1){
+		ftp_reply(sess,FTP_UPLOADFAIL,"could not create file.");
+		return;
+	}
+	// STOR
+	// STOR+REST
+	// APPE
+	if(!is_append && offset == 0){	// STOR
+		ftruncate(fd,0);
+		if(lseek(fd,0,SEEK_SET) < 0){
+			ftp_reply(sess,FTP_UPLOADFAIL,"could not create file.");
+			return;
+		}
+	}else if(!is_append && offset != 0){	//REST + STOR
+		if(lseek(fd,offset,SEEK_SET) < 0){
+			ftp_reply(sess,FTP_UPLOADFAIL,"could not create file.");
+			return;
+		}
+	}else if(is_append){	//APPE
+		if(lseek(fd,0,SEEK_END) < 0){
+			ftp_reply(sess,FTP_UPLOADFAIL,"could not create file.");
+			return;
+		}
+	}
+
+	struct stat sbuf;
+	ret = fstat(fd,&sbuf);
+	if(!S_ISREG(sbuf.st_mode)){
+		ftp_reply(sess,FTP_FILEFAIL,"could not create file.");
+		return;
+	}
+
+	//150 Opening ASCII mode data connection for a.out (14124 bytes).
+	char text[1024] = {0};
+	if(sess->is_ascii){
+		sprintf(text,"Opening ASCII mode data connection for %s (%lld bytes).",sess->arg,(long long)sbuf.st_size);
+	}else{
+		sprintf(text,"Opening BINARY mode data connection for %s (%lld bytes).",sess->arg,(long long)sbuf.st_size);
+	}
+	// 150
+	ftp_reply(sess,FTP_DATACONN,text);
+
+	int flag = 0;
+
+	// 上传文件
+	char buf[1024];
+	while(1){
+		ret = read(sess->data_fd,buf,sizeof(buf));
+		if(ret == -1){
+			if(errno == EINTR){
+				continue;
+			}else{
+				flag = 2;
+				break;
+			}
+		}else if(ret == 0){
+			flag = 0;
+			break;
+		}
+		if(writen(fd,buf,ret) !=  ret){
+			flag = 1;
+			break;
+		}
+	}
+
+	// 关闭数据套接字
+	close(sess->data_fd);
+	sess->data_fd = -1;
+	close(fd);
+	if(flag == 0){
+		// 226
+		ftp_reply(sess,FTP_TRANSFEROK,"Transfer complete.");
+	}else if(flag == 1){
+		//426
+		ftp_reply(sess,FTP_BADSENDFILE,"Failure writting to local file");
+	}else if(flag == 2){
+		//451
+		ftp_reply(sess,FTP_BADSENDNET,"Failure reading from network stream.");
+	}
+
 }
 
 int port_active(session_t *sess)
@@ -577,6 +679,7 @@ static void do_retr(session_t *sess)
 	// 关闭数据套接字
 	close(sess->data_fd);
 	sess->data_fd = -1;
+	close(fd);
 	if(flag == 0){
 		// 226
 		ftp_reply(sess,FTP_TRANSFEROK,"Transfer complete.");
@@ -592,13 +695,13 @@ static void do_retr(session_t *sess)
 
 static void do_stor(session_t *sess)
 {
-
+	upload_common(sess,0);
 }
 
 
 static void do_appe(session_t *sess)
 {
-
+	upload_common(sess,1);
 }
 
 
