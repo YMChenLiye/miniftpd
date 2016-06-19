@@ -96,7 +96,7 @@ void priv_sock_send_int(int fd, int the_int)
 
 int priv_sock_get_int(int fd)
 {
-	char the_int;
+	int the_int;
 	int ret;
 	ret = readn(fd,&the_int,sizeof(the_int));
 	if(ret != sizeof(the_int)){
@@ -119,12 +119,13 @@ void priv_sock_send_buf(int fd, const char *buf, unsigned int len)
 void priv_sock_recv_buf(int fd, char *buf, unsigned int len)
 {
 	unsigned int recv_len = (unsigned int)priv_sock_get_int(fd);
+	//printf("recv_len = %u,len = %u\n",recv_len,len);
 	if(recv_len > len){
 		fprintf(stderr,"priv_sock_recv_buf error\n");
 		exit(EXIT_FAILURE);
 	}
 	int ret = readn(fd,buf,recv_len);
-	if(ret != recv_len){
+	if(ret != (int)recv_len){
 		fprintf(stderr,"priv_sock_recv_buf error\n");
 		exit(EXIT_FAILURE);
 	}

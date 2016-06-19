@@ -27,10 +27,10 @@ void priv_sock_send_result(int fd, char res);
 char priv_sock_get_result(int fd);
 
 void priv_sock_send_int(int fd, int the_int);
-int priv_sock_get_int(int fd);
+int  priv_sock_get_int(int fd);
 void priv_sock_send_buf(int fd, const char *buf, unsigned int len);
 void priv_sock_recv_buf(int fd, char *buf, unsigned int len);
 void priv_sock_send_fd(int sock_fd, int fd);
-int priv_sock_recv_fd(int sock_fd);
+int  priv_sock_recv_fd(int sock_fd);
 
 #endif

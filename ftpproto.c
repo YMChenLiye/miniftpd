@@ -3,12 +3,14 @@
 #include "str.h"
 #include "ftpcodes.h"
 #include "tunable.h"
+#include "privsock.h"
 
 void ftp_reply(session_t * sess,int status,const char *text);
 void ftp_lreply(session_t * sess,int status,const char *text);
 
 int list_common(session_t *sess);
 
+int get_port_fd(session_t *sess);
 int get_transfer_fd(session_t *sess);
 int port_active(session_t *sess);
 int pasv_active(session_t *sess);
@@ -312,24 +314,52 @@ int pasv_active(session_t *sess)
 	return 0;
 }
 
+int get_port_fd(session_t *sess)
+{
+			/*
+	向nobody发送PRIV_SOCK_GET_DATA_SOCK命令
+	向nobody发送一个整数port
+	向nobody发送一个字符串ip
+	*/
+	priv_sock_send_cmd(sess->child_fd,PRIV_SOCK_GET_DATA_SOCK);
+	unsigned short port = ntohs(sess->port_addr->sin_port);
+	char *ip = inet_ntoa(sess->port_addr->sin_addr);
+	priv_sock_send_int(sess->child_fd,(int)port);
+	priv_sock_send_buf(sess->child_fd,ip,strlen(ip));
+
+	char res = priv_sock_get_result(sess->child_fd);
+	if(res == PRIV_SOCK_RESULT_BAD){
+		return 0;
+	}else if(res == PRIV_SOCK_RESULT_OK){
+		sess->data_fd = priv_sock_recv_fd(sess->child_fd);
+	}
+
+	return 1;
+}
+
 int get_transfer_fd(session_t *sess)
 {
-	//printf("1111111111\n");
+
 	// 检测是否收到PORT或者PASV命令
 	if(!port_active(sess) && !pasv_active(sess)){
 		return 0;
 	}
 
-	//printf("22222222222222\n");
+	int ret;
 	//如果是主动模式
 	if(port_active(sess)){
+		/*
 		int fd = tcp_client(0);
 		if(connect_timeout(fd,sess->port_addr,tunable_connect_timeout) < 0){
 			close(fd);
-			//printf("4444444444444\n");
 			return 0;
 		}
 		sess->data_fd = fd;
+		*/
+		if(get_port_fd(sess) == 0){
+			ret = 0;
+		}
+
 	}
 
 	// 如果是被动模式
@@ -346,8 +376,9 @@ int get_transfer_fd(session_t *sess)
 		free(sess->port_addr);
 		sess->port_addr = NULL;
 	}
-//printf("33333333333\n");
-	return 1;
+
+
+	return ret;
 }
 
 static void do_user(session_t *sess)
