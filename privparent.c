@@ -126,7 +126,6 @@ static void privop_pasv_listen(session_t *sess)
 	unsigned short port = ntohs(addr.sin_port);
 
 	priv_sock_send_int(sess->parent_fd,(int)port);
-
 }
 
 static void privop_pasv_accept(session_t *sess)

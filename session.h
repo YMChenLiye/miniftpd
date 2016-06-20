@@ -14,6 +14,7 @@ typedef struct session{
 	struct sockaddr_in *port_addr;
 	int pasv_listen_fd;
 	int data_fd;
+	int data_process;
 
 	// 限速
 	unsigned int bw_upload_rate_max;

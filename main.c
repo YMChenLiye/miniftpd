@@ -5,6 +5,8 @@
 #include "parseconf.h"
 #include "ftpproto.h"
 
+extern 	session_t *p_sess;
+
 int main()
 {
 	//list_common();
@@ -83,7 +85,7 @@ extern const char  *tunable_listen_address;
 		//控制链接
 		0,-1,"","","",
 		//数据连接
-		NULL,-1,-1,
+		NULL,-1,-1,0,
 		//限速
 		0,0,0,0,
 		//父子进程通道
@@ -91,7 +93,8 @@ extern const char  *tunable_listen_address;
 		//ftp协议状态
 		0,0,NULL
 	};
-
+	p_sess = &sess;
+	
 	sess.bw_upload_rate_max = tunable_upload_max_rate;
 	sess.bw_download_rate_max = tunable_download_max_rate;
 	

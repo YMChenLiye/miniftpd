@@ -8,6 +8,12 @@
 void ftp_reply(session_t * sess,int status,const char *text);
 void ftp_lreply(session_t * sess,int status,const char *text);
 
+void handle_alarm_timeout(int sig);
+void handle_sigalrm(int sig);
+
+void start_cmdio_alarm(void);
+void start_data_alarm(void);
+
 int list_common(session_t *sess,int detail);
 void limit_rate(session_t *sess,int bytes_transfered,int is_upload);
 void upload_common(session_t *sess,int is_append);
@@ -104,6 +110,74 @@ static ftpcmd_t ctrl_cmds[] = {
 	{"ALLO",	NULL	}
 };
 
+session_t *p_sess;
+
+void handle_alarm_timeout(int sig)
+{
+	printf("handle_alarm_timeout\n");
+	shutdown(p_sess->ctrl_fd, SHUT_RD);
+	ftp_reply(p_sess, FTP_IDLE_TIMEOUT, "Timeout.");
+	shutdown(p_sess->ctrl_fd, SHUT_WR);
+	exit(EXIT_FAILURE);
+}
+
+void handle_sigalrm(int sig)
+{
+	printf("handle_sigalrm\n");
+	if(!p_sess->data_process){
+		ftp_reply(p_sess,FTP_DATA_TIMEOUT,"Data timeout. Reconnect. Sorry");
+		exit(EXIT_FAILURE);
+	}
+
+	// 否则当前处于数据传输的状态收到了超时信号
+	p_sess->data_process = 0;
+	start_data_alarm();
+}
+struct sigaction act;
+
+void start_cmdio_alarm(void)
+{
+	
+	if (tunable_idle_session_timeout > 0)
+	{
+		// 安装信号
+		
+		act.sa_handler = handle_alarm_timeout;
+		sigemptyset(&act.sa_mask);
+		act.sa_flags = SA_NODEFER;
+		sigaction(SIGALRM,&act,NULL);
+		//signal(SIGALRM, handle_alarm_timeout);
+		// 启动闹钟
+		int ret;
+		ret = alarm(tunable_idle_session_timeout);
+		printf("ret = %d ,time = %d ",ret,tunable_idle_session_timeout);
+		printf("start_cmdio_alarm\n");
+	}
+	
+}
+
+void start_data_alarm(void)
+{
+
+	if(tunable_data_connection_timeout > 0){
+		// 安装信号
+		act.sa_handler = handle_sigalrm;
+		sigemptyset(&act.sa_mask);
+		act.sa_flags = SA_NODEFER;
+		sigaction(SIGALRM,&act,NULL);
+		//signal(SIGALRM, handle_sigalrm);
+		// 启动闹钟
+		int ret;
+		ret = alarm(tunable_data_connection_timeout);
+		printf("ret = %d ,time = %d ",ret,tunable_data_connection_timeout);
+		printf("start_data_alarm\n");
+	}else if(tunable_idle_session_timeout > 0){
+		// 关闭先前安装的闹钟
+		alarm(0);
+		printf("close alarm\n");
+	}
+}
+
 void handle_child(session_t *sess)
 {
 	//writen(sess->ctrl_fd,"220 (miniftpd 0.1)\r\n",strlen("220 (miniftpd 0.1)\r\n"));
@@ -113,6 +187,9 @@ void handle_child(session_t *sess)
 		memset(sess->cmdline,0,sizeof(sess->cmdline));
 		memset(sess->cmd,0,sizeof(sess->cmd));
 		memset(sess->arg,0,sizeof(sess->arg));
+
+		printf("in handle_child\n");
+		start_cmdio_alarm();
 		ret = readline(sess->ctrl_fd,sess->cmdline,MAX_COMMAND_LINE);
 		if(ret == -1){
 			ERR_EXIT("readline");
@@ -222,16 +299,18 @@ int list_common(session_t *sess,int detail)
 
 void limit_rate(session_t *sess,int bytes_transfered,int is_upload)
 {
+	sess->data_process = 1;
+
 	// 睡眠时间 = (当前传输速度 / 最大传输速度 - 1) * 当前传输时间；
 	long curr_sec = get_time_sec();
 	long curr_usec = get_time_usec();
 
 	double elapsed;
-	elapsed = curr_sec - sess->bw_transfer_start_sec;
+	elapsed = (double)curr_sec - sess->bw_transfer_start_sec;
 	elapsed += (double)(curr_usec - sess->bw_transfer_start_usec) / (double)1000000;
 
-	if(elapsed <= 0){
-		elapsed = 0.01;
+	if(elapsed <= (double)0){
+		elapsed = (double)0.01;
 	}
 
 	//计算当前传输速度
@@ -242,6 +321,8 @@ void limit_rate(session_t *sess,int bytes_transfered,int is_upload)
 	if(is_upload){
 		if(bw_rate <= sess->bw_upload_rate_max){
 			//不需要限速
+			sess->bw_transfer_start_sec = curr_sec;
+			sess->bw_transfer_start_usec = curr_usec;
 			return;
 		}
 		rate_ratio = bw_rate / sess->bw_upload_rate_max;
@@ -249,6 +330,8 @@ void limit_rate(session_t *sess,int bytes_transfered,int is_upload)
 	}else{
 		if(bw_rate <= sess->bw_download_rate_max){
 			//不需要限速
+			sess->bw_transfer_start_sec = curr_sec;
+			sess->bw_transfer_start_usec = curr_usec;
 			return;
 		}
 		rate_ratio = bw_rate / sess->bw_download_rate_max;
@@ -328,7 +411,6 @@ void upload_common(session_t *sess,int is_append)
 	// 上传文件
 	char buf[10240];
 
-	
 	sess->bw_transfer_start_sec = get_time_sec();
 	sess->bw_transfer_start_usec = get_time_usec();
 
@@ -356,7 +438,6 @@ void upload_common(session_t *sess,int is_append)
 
 	// 关闭数据套接字
 	close(sess->data_fd);
-	printf("close sockfd\n");
 	sess->data_fd = -1;
 	close(fd);
 	if(flag == 0){
@@ -369,6 +450,8 @@ void upload_common(session_t *sess,int is_append)
 		//451
 		ftp_reply(sess,FTP_BADSENDNET,"Failure reading from network stream.");
 	}
+	printf("in upload_common\n");
+	start_cmdio_alarm();
 
 }
 
@@ -487,6 +570,10 @@ int get_transfer_fd(session_t *sess)
 		sess->port_addr = NULL;
 	}
 
+	if(ret){
+		// 重新安装SIGALRM信号，并启动闹钟
+		start_data_alarm();
+	}
 
 	return ret;
 }
@@ -596,13 +683,13 @@ static void do_pasv(session_t *sess)
 	*/
 	priv_sock_send_cmd(sess->child_fd,PRIV_SOCK_PASV_LISTEN);
 	unsigned short port = (unsigned short)priv_sock_get_int(sess->child_fd);
-	
 	unsigned int v[4];
 	sscanf(ip,"%u.%u.%u.%u",&v[0],&v[1],&v[2],&v[3]);
 	char text[1024] = {0};
 	sprintf(text,"Entering Passive Mode (%u,%u,%u,%u,%u,%u).",
 		v[0],v[1],v[2],v[3],port>>8,port & 0xff);
 	ftp_reply(sess,FTP_PASVOK,text);
+
 
 }
 
@@ -737,6 +824,7 @@ static void do_retr(session_t *sess)
 	close(sess->data_fd);
 	sess->data_fd = -1;
 	close(fd);
+
 	if(flag == 0){
 		// 226
 		ftp_reply(sess,FTP_TRANSFEROK,"Transfer complete.");
@@ -747,6 +835,10 @@ static void do_retr(session_t *sess)
 		//451
 		ftp_reply(sess,FTP_BADSENDNET,"Failure writting to network stream.");
 	}
+
+	// 重新开启控制连接通道闹钟
+	printf("in retr\n");
+	start_cmdio_alarm();
 }
 
 
