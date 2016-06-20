@@ -91,7 +91,7 @@ extern const char  *tunable_listen_address;
 		//父子进程通道
 		-1,-1,
 		//ftp协议状态
-		0,0,NULL
+		0,0,NULL,0
 	};
 	p_sess = &sess;
 	

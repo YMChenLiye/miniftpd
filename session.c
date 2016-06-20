@@ -3,10 +3,12 @@
 #include "ftpproto.h"
 #include "privparent.h"
 #include "privsock.h"
+#include "sysutil.h"
 
 void begin_session(session_t *sess)
 {	
-	
+	//开启带外数据
+	activate_oobinline(sess->ctrl_fd);
 	/*
 	int sockfds[2];
 	if(socketpair(PF_UNIX,SOCK_STREAM,0,sockfds) < 0){

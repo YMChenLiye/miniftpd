@@ -30,6 +30,7 @@ typedef struct session{
 	int is_ascii;
 	long long restart_pos;
 	char *rnfr_name;
+	int abor_received;
 }session_t;
 
 void begin_session(session_t *sess);

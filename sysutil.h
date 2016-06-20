@@ -34,6 +34,7 @@ long get_time_sec(void);
 long get_time_usec(void);
 void nano_sleep(double seconds);
 
-
+void activate_oobinline(int fd);
+void activate_sigurg(int fd);
 
 #endif
