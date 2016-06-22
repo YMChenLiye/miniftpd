@@ -508,9 +508,10 @@ int recv_fd(const int sock_fd)
 	return recv_fd;
 }
 
+static char perms[] = "----------";
 const char* statbuf_get_perms(struct stat *sbuf)
 {
-	static char perms[] = "----------";
+	strcpy(perms,"----------");
 	perms[0] = '?';
 
 	mode_t mode = sbuf->st_mode;

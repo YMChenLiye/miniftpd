@@ -63,9 +63,11 @@ extern unsigned int tunable_upload_max_rate;
 extern unsigned int tunable_download_max_rate;
 extern const char  *tunable_listen_address;
 */
-
+	
 	parseconf_load_file(MINIFTPD_CONF);
 	
+	daemon(0,0);
+
 	printf("tunable_pasv_enable=%d\n",tunable_pasv_enable);
 	printf("tunable_port_enable=%d\n",tunable_port_enable);
 	printf("tunable_listen_port=%u\n",tunable_listen_port);
