@@ -70,7 +70,7 @@ void hash_add_entry(hash_t *hash, void *key, unsigned int key_size,
 
 void hash_free_entry(hash_t *hash, void *key, unsigned int key_size)
 {
-	hash_node_t *node = hash_get_node_by_key(hahs,key,key_size);
+	hash_node_t *node = hash_get_node_by_key(hash,key,key_size);
 	if(node == NULL){
 		return;
 	}
@@ -104,7 +104,7 @@ hash_node_t** hash_get_bucket(hash_t *hash, void *key)
 hash_node_t* hash_get_node_by_key(hash_t *hash, void *key, unsigned int key_size)
 {
 	hash_node_t **bucket = hash_get_bucket(hash,key);
-	hash_node *node = *bucket;
+	hash_node_t *node = *bucket;
 	if(node == NULL){
 		return NULL;
 	}

@@ -5,12 +5,21 @@
 #include "parseconf.h"
 #include "ftpproto.h"
 #include "ftpcodes.h"
+#include "hash.h"
 
 extern session_t *p_sess;
 static unsigned int s_children;
 
+static hash_t *s_ip_count_hash;
+static hash_t *s_pid_ip_hash;
+
 void check_limits(session_t *sess);
 void handle_sigchld(int sig);
+
+unsigned int hash_func(unsigned int buckets, void *key);
+
+unsigned int handle_ip_count(void *ip);
+void drop_ip_count(void *ip);
 
 int main()
 {
@@ -98,25 +107,33 @@ extern const char  *tunable_listen_address;
 		//ftp协议状态
 		0,0,NULL,0,
 		//连接数限制
-		0
+		0,0
 	};
 	p_sess = &sess;
 	
 	sess.bw_upload_rate_max = tunable_upload_max_rate;
 	sess.bw_download_rate_max = tunable_download_max_rate;
-	
+
+	s_ip_count_hash = hash_alloc(256,hash_func);
+	s_pid_ip_hash = hash_alloc(256,hash_func);
+
 	signal(SIGCHLD,handle_sigchld);
 	int listenfd = tcp_server(tunable_listen_address,tunable_listen_port);
 	int conn;
 	pid_t pid;
+	struct sockaddr_in addr;
+
 	while(1){
-		conn = accept_timeout(listenfd,NULL,0);
+		conn = accept_timeout(listenfd,&addr,0);
 		if(conn == -1){
 			ERR_EXIT("accept_timeout");
 		}
+		
+		unsigned int ip = addr.sin_addr.s_addr;
 
 		++s_children;
 		sess.num_clients = s_children;
+		sess.num_this_ip = handle_ip_count(&ip);
 
 		pid = fork();
 		if(pid == -1){
@@ -130,6 +147,7 @@ extern const char  *tunable_listen_address;
 			signal(SIGCHLD,SIG_IGN);
 			begin_session(&sess);
 		}else {
+			hash_add_entry(s_pid_ip_hash,&pid,sizeof(pid),&ip,sizeof(unsigned int));
 			close(conn);
 		}
 	}
@@ -144,13 +162,72 @@ void check_limits(session_t *sess)
 		ftp_reply(sess,FTP_TOO_MANY_USERS,"There are too many connected users.please try later.");
 		exit(EXIT_FAILURE);
 	}
+
+	if(tunable_max_per_ip > 0 && sess->num_this_ip > tunable_max_per_ip){
+		ftp_reply(sess,FTP_IP_LIMIT,"There are too many connections from your internet address.");
+		exit(EXIT_FAILURE);
+	}
 }
 
 void handle_sigchld(int sig)
 {
+	// 当一个客户端退出的时候,那么该客户端对应 ip 的连接数要减 1,
+	// 处理过程是这样的,首先是客户端退出的时候,
+	// 父进程需要知道这个客户端的 ip,这可以通过在 s_pid_ip_hash 查找得到,
+	// 得到了ip 进而我们就可以在 s_ip_count_hash 表中找到对应的连接数,进而进行减 1 操作。
+
 	pid_t pid;
 	while((pid = waitpid(-1,NULL,WNOHANG)) > 0){
-		;
+		--s_children;
+		unsigned int *ip = hash_lookup_entry(s_pid_ip_hash,&pid,sizeof(pid));
+		if(ip == NULL){
+			continue;
+		}
+
+		drop_ip_count(ip);
+		hash_free_entry(s_pid_ip_hash,&pid,sizeof(pid));
 	}
-	--s_children;
+}
+
+unsigned int hash_func(unsigned int buckets, void *key)
+{
+	unsigned int *number = (unsigned int *)key;
+	return (*number) % buckets;
+}
+
+unsigned int handle_ip_count(void *ip)
+{
+	// 当一个客户登录的时候,要在 s_ip_count_hash 更新这个表中的对应表项,
+	// 即该 ip对应的连接数要加 1,如果这个表项还不存在,要在表中添加一条记录,
+	// 并且将 ip 对应的连接数置1。
+	unsigned int count;
+	unsigned int *p_count = (unsigned int *)hash_lookup_entry(s_ip_count_hash,ip,sizeof(unsigned int));
+	if(p_count == NULL){
+		count = 1;
+		hash_add_entry(s_ip_count_hash,ip,sizeof(ip),&count,sizeof(count));
+	}else {
+		count = *p_count;
+		++count;
+		*p_count = count;
+	}
+	return count;
+}
+
+void drop_ip_count(void *ip)
+{
+	unsigned int count;
+	unsigned int *p_count = (unsigned int *)hash_lookup_entry(s_ip_count_hash,ip,sizeof(unsigned int));
+	if(p_count == NULL){
+		return;
+	}
+
+	count = *p_count;
+	if(count <= 0){
+		return;
+	}
+	--count;
+	*p_count = count;
+	if(count == 0){
+		hash_free_entry(s_ip_count_hash,ip,sizeof(unsigned int));
+	}
 }
